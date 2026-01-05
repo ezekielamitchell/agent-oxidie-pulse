@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>agent-oxide-pulse // Logic Simulation</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background-color: #0f172a; color: #e2e8f0; font-family: 'Courier New', monospace; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        h1 { border-bottom: 2px solid #3b82f6; padding-bottom: 10px; }
+        .controls { display: flex; gap: 20px; margin-bottom: 20px; justify-content: center; }
+        button {
+            padding: 15px 30px; font-size: 16px; font-weight: bold; cursor: pointer;
+            border: none; border-radius: 4px; transition: all 0.1s;
+        }
+        #btn-tap { background-color: #eab308; color: #000; box-shadow: 0 0 10px #eab308aa; }
+        #btn-tap:active { transform: scale(0.95); background-color: #ca8a04; }
+        
+        #btn-hold { background-color: #ef4444; color: #fff; box-shadow: 0 0 10px #ef4444aa; }
+        #btn-hold:active { transform: scale(0.95); background-color: #b91c1c; }
+
+        .status-panel { 
+            display: grid; grid-template-columns: 1fr 1fr; gap: 20px; 
+            background: #1e293b; padding: 20px; border-radius: 8px; margin-top: 20px;
+        }
+        .metric { text-align: center; }
+        .label { font-size: 12px; color: #94a3b8; text-transform: uppercase; }
+        .value { font-size: 24px; font-weight: bold; }
+        .trap-indicator { 
+            grid-column: span 2; text-align: center; padding: 10px; 
+            background: #334155; margin-top: 10px; border-radius: 4px;
+            color: #64748b; transition: all 0.3s;
+        }
+        .trap-active { background-color: #eab308 !important; color: #000 !important; font-weight: bold;box-shadow: 0 0 20px #eab308; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>GHOST HUNTER v2 // SIMULATION</h1>
+    <p>Simulating 50Hz ESP32 Polling Loop</p>
+
+    <div class="controls">
+        <button id="btn-tap" onmousedown="simulateTouch()" onmouseup="simulateRelease()">QUICK TAP (NOISE)</button>
+        <button id="btn-hold" onmousedown="simulateHoldStart()" onmouseup="simulateHoldEnd()">HOLD (VALID)</button>
+    </div>
+
+    <canvas id="signalChart"></canvas>
+
+    <div class="status-panel">
+        <div class="metric">
+            <div class="label">Raw Signal</div>
+            <div class="value" id="val-raw">0</div>
+        </div>
+        <div class="metric">
+            <div class="label">Filtered (Avg)</div>
+            <div class="value" id="val-filtered">0</div>
+        </div>
+        <div id="trap-box" class="trap-indicator">NO TRAP DETECTED</div>
+    </div>
+</div>
+
+<script>
+    // --- C++ LOGIC MIRROR ---
+    const POLLING_RATE_MS = 20; // 50Hz
+    const BUFFER_SIZE = 10;
+    const THRESHOLD = 40;
+
+    let buffer = new Array(BUFFER_SIZE).fill(0);
+    let bufferIndex = 0;
+    
+    // Simulation State
+    let isTouching = false;
+    let currentSignal = 0; // 0-100
+    
+    // Add randomness to simulate sensor jitter
+    function getHardwareReading() {
+        let reading = isTouching ? 90 : 5; // Target values
+        // Add noise +/- 5
+        let noise = Math.floor(Math.random() * 10) - 5;
+        return Math.max(0, Math.min(100, reading + noise));
+    }
+
+    function processMovingAverage(newSample) {
+        buffer[bufferIndex] = newSample;
+        bufferIndex = (bufferIndex + 1) % BUFFER_SIZE;
+        let sum = buffer.reduce((a, b) => a + b, 0);
+        return Math.floor(sum / BUFFER_SIZE);
+    }
+
+    // --- CHART SETUP ---
+    const ctx = document.getElementById('signalChart').getContext('2d');
+    const chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: Array(50).fill(''),
+            datasets: [
+                {
+                    label: 'Raw Signal',
+                    borderColor: '#94a3b8',
+                    borderWidth: 1,
+                    pointRadius: 0,
+                    data: Array(50).fill(0),
+                    tension: 0
+                },
+                {
+                    label: 'Filtered (Avg)',
+                    borderColor: '#3b82f6',
+                    borderWidth: 3,
+                    pointRadius: 0,
+                    data: Array(50).fill(0),
+                    tension: 0.1
+                }
+            ]
+        },
+        options: {
+            animation: false,
+            scales: {
+                y: { min: 0, max: 100 }
+            }
+        }
+    });
+
+    // --- MAIN LOOP ---
+    setInterval(() => {
+        // 1. Acquire
+        let raw = getHardwareReading();
+        // Decay logic for smoother simulation release if needed, but hardware is instant.
+        
+        // 2. Filter
+        let filtered = processMovingAverage(raw);
+        
+        // 3. Logic Check (The Trap)
+        let trapBox = document.getElementById('trap-box');
+        let potentialFalsePositive = (raw > THRESHOLD && filtered < THRESHOLD);
+        
+        if (potentialFalsePositive) {
+            trapBox.innerText = "⚠️ TYPE 1 ERROR TRAPPED (FALSE POSITIVE) ⚠️";
+            trapBox.classList.add('trap-active');
+        } else {
+            trapBox.innerText = "SYSTEM NORMAL";
+            trapBox.classList.remove('trap-active');
+        }
+
+        // GUI Updates
+        document.getElementById('val-raw').innerText = raw;
+        document.getElementById('val-filtered').innerText = filtered;
+
+        // Chart Update
+        chart.data.datasets[0].data.push(raw);
+        chart.data.datasets[0].data.shift();
+        chart.data.datasets[1].data.push(filtered);
+        chart.data.datasets[1].data.shift();
+        chart.update();
+
+    }, POLLING_RATE_MS);
+
+    // --- CONTROLS ---
+    function simulateTouch() { isTouching = true; }
+    function simulateRelease() { isTouching = false; }
+    
+    function simulateHoldStart() { isTouching = true; }
+    function simulateHoldEnd() { isTouching = false; }
+
+</script>
+</body>
+</html>

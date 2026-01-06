@@ -1,4 +1,7 @@
 /**
+ * @author Ezekiel A. Mitchell
+ * @date 2026-01-06
+ * @version 0.1
  * @file main.cpp
  * @brief agent-oxide-pulse: JTAG Debug Proof of Concept
  *
